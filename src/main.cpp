@@ -1,8 +1,10 @@
 #include <TFT_eSPI.h>
 #include <Preferences.h>
+#include <esp_adc_cal.h>
 #include "back.h"
 #include "gameOver.h"
 #include "newGame.h"
+
 
 TFT_eSPI tft = TFT_eSPI();
 TFT_eSprite sprite = TFT_eSprite(&tft);
@@ -13,6 +15,7 @@ Preferences preferences;
 #define left 0
 #define right 14
 #define PIN_POWER_ON 15
+#define PIN_BAT_VOLT 4
 
 // define the time period in which the device should be put to deep sleep
 #define SLEEP_PERIOD 60000 // 60 seconds
@@ -24,6 +27,7 @@ int y[120]={0};
 int x[120]={0};
 int highscore=0;
 unsigned long currentTime=0;
+unsigned long readTime=0;
 int period=200;
 int deb,deb2=0;
 int dirX=1;
@@ -48,7 +52,7 @@ int change=0;
 
 void showHighscore() //Show the highscore
 {
-  tft.fillRect(80,6,81,23,background);
+  // Blank the text area
   tft.fillRoundRect(80,6,65,21,1,textbg);
   tft.setTextDatum(0);
   tft.setTextSize(1);
@@ -59,6 +63,39 @@ void showHighscore() //Show the highscore
     tft.setTextColor(TFT_PURPLE,textbg);
   }
   tft.drawString((String)highscore,103,18);
+}
+
+void showBat() //Show the current battery %
+{
+  esp_adc_cal_characteristics_t adc_chars;
+
+  // Get the internal calibration value of the chip
+  esp_adc_cal_value_t val_type = esp_adc_cal_characterize(ADC_UNIT_1, ADC_ATTEN_DB_11, ADC_WIDTH_BIT_12, 1100, &adc_chars);
+  uint32_t raw = analogRead(PIN_BAT_VOLT);
+  uint32_t v1 = esp_adc_cal_raw_to_voltage(raw, &adc_chars) * 2; //The partial pressure is one-half
+
+  // Map millivolts to percentage
+  uint32_t batPercent = map(v1, 3950, 2900, 100, 0);
+
+  // Blank the text area
+  tft.fillRoundRect(55,290,65,25,1,textbg);
+
+  tft.setTextDatum(0);
+  tft.setTextSize(1);
+  tft.drawString("Battery:",65,295);
+  if (batPercent<=10) {
+    tft.setTextColor(TFT_RED,textbg);
+  } else {
+    tft.setTextColor(TFT_PURPLE,textbg);
+  }
+  if (batPercent>100){
+    tft.drawString("Charging",65,305);
+  } else {
+    tft.drawString((String)batPercent+"%",75,305);
+  }
+
+  //tft.drawString((String)v1,75,305);
+
 }
 
 void checkGameOver()//..,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,check game over
@@ -98,6 +135,8 @@ void run()//...............................run function
   {
     size++;
     getFood();
+    tft.setTextSize(3);
+    tft.setTextDatum(4);
     tft.drawString(String(size),44,250);
     period=period-1;
     tft.drawString(String(500-period),124,250);
@@ -156,6 +195,12 @@ void setup() {  //.......................setup
   tft.pushImage(0,0,170,320,back);
   tft.pushImage(0,30,170,170,newGame);
 
+  // Create rectangle for highscore
+  tft.fillRect(80,6,81,23,background);
+
+  // Create rectangle for battery state
+  tft.fillRect(45,284,75,35,background);
+
   tft.setTextColor(TFT_PURPLE,textbg);
   tft.fillSmoothCircle(28,102+(howHard*24),5,TFT_RED,TFT_BLACK); 
   tft.drawString("DIFFICULTY:  "+ diff[howHard]+"   ",26,267); 
@@ -201,8 +246,14 @@ void setup() {  //.......................setup
     if (button_pressed) {
       button_pressed = false;
       currentTime = time_now;
-    }      
+    }
 
+    // Check if it's time to read battery voltage
+    if (time_now - readTime >= 1000) {
+      //Show the battery voltage
+      showBat();
+      readTime = time_now;
+    }
   }
 
   y[0]=random(5,15);
@@ -221,7 +272,10 @@ void setup() {  //.......................setup
 void loop() { //...............................................................loop
   
   if(millis()>currentTime+period) 
-  {run(); currentTime=millis();} 
+  {run(); currentTime=millis();}
+
+  if(millis()>readTime+1000) 
+  {showBat(); readTime=millis();}
 
   if(millis()>readyTime+100 && ready==0) 
   {ready=1;} 
